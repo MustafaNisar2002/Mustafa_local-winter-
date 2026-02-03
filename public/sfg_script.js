@@ -18,6 +18,9 @@ const EDGE_LABEL_OFFSET_STEP = 26;
 const EDGE_LABEL_WIDTH_PADDING = 72;
 const EDGE_LABEL_CHAR_FACTOR = 0.62;
 const EDGE_LABEL_WIDTH_SCALE = 0.45;
+const EDGE_LABEL_COLLISION_PADDING = 10;
+const EDGE_LABEL_COLLISION_STEP = 36;
+const EDGE_LABEL_AVOIDANCE_MAX = 360;
 
 let pendingCurveUpdate = false;
 
@@ -34,7 +37,7 @@ function scheduleEdgeCurveUpdate(cy) {
 
     requestAnimationFrame(() => {
         pendingCurveUpdate = false;
-        applyEdgeCurves(cy);
+        applyEdgeCurvesWithLabelAvoidance(cy);
         syncSymbolicLabelOffsets(cy);
     });
 }
@@ -108,6 +111,95 @@ function syncSymbolicLabelOffsets(cy) {
             labelEl.style.marginTop = `${edge.data('labelOffset') || 0}px`;
         }
     });
+}
+
+function applyEdgeCurvesWithLabelAvoidance(cy) {
+  if (!cy || cy.destroyed()) {
+    return;
+  }
+
+  const maxIterations = 3;
+
+  for (let pass = 0; pass < maxIterations; pass += 1) {
+    applyEdgeCurves(cy);
+    const changed = updateLabelCollisionAvoidance(cy);
+    if (!changed) {
+      break;
+    }
+  }
+}
+
+function updateLabelCollisionAvoidance(cy) {
+  if (!symbolic_flag || !cy || cy.destroyed()) {
+    cy?.edges().forEach(edge => edge.removeScratch('_labelAvoidance'));
+    return false;
+  }
+
+  const labelEntries = [];
+  cy.edges().forEach(edge => {
+    if (!edge.isEdge() || edge.destroyed()) {
+      return;
+    }
+
+    const idx = edge.data('symbolicIndex');
+    if (idx === undefined || idx === null) {
+      return;
+    }
+
+    const labelEl = document.getElementById(`edge-${idx}`);
+    if (!labelEl) {
+      return;
+    }
+
+    const rect = labelEl.getBoundingClientRect();
+    if (!rect.width || !rect.height) {
+      return;
+    }
+
+    labelEntries.push({ edge, rect });
+  });
+
+  const overlapCounts = new Map();
+  const pad = EDGE_LABEL_COLLISION_PADDING;
+
+  const intersects = (a, b) => {
+    return !(
+      a.right + pad < b.left - pad ||
+      a.left - pad > b.right + pad ||
+      a.bottom + pad < b.top - pad ||
+      a.top - pad > b.bottom + pad
+    );
+  };
+
+  for (let i = 0; i < labelEntries.length; i += 1) {
+    for (let j = i + 1; j < labelEntries.length; j += 1) {
+      const entryA = labelEntries[i];
+      const entryB = labelEntries[j];
+      if (!intersects(entryA.rect, entryB.rect)) {
+        continue;
+      }
+
+      overlapCounts.set(entryA.edge, (overlapCounts.get(entryA.edge) || 0) + 1);
+      overlapCounts.set(entryB.edge, (overlapCounts.get(entryB.edge) || 0) + 1);
+    }
+  }
+
+  let changed = false;
+  cy.edges().forEach(edge => {
+    if (!edge.isEdge() || edge.destroyed()) {
+      return;
+    }
+
+    const overlaps = overlapCounts.get(edge) || 0;
+    const desired = Math.min(EDGE_LABEL_AVOIDANCE_MAX, overlaps * EDGE_LABEL_COLLISION_STEP);
+    const current = edge.scratch('_labelAvoidance') || 0;
+    if (current !== desired) {
+      edge.scratch('_labelAvoidance', desired);
+      changed = true;
+    }
+  });
+
+  return changed;
 }
 
 function applyEdgeLabelVisibility(cyInstance = window.cy) {
@@ -744,7 +836,8 @@ function applyEdgeCurves(cy) {
       return;
     }
 
-    let magnitude = EDGE_BASE_CURVE_DISTANCE;
+    const labelAvoidance = edge.scratch('_labelAvoidance') || 0;
+    let magnitude = EDGE_BASE_CURVE_DISTANCE + labelAvoidance;
     magnitude += spreadMagnitude * (EDGE_CURVE_SPACING * 0.6);
     magnitude += Math.abs(combinedOffset) * (EDGE_CURVE_SPACING * 0.4);
     magnitude += Math.abs(pairSpread) * (EDGE_CURVE_SPACING * 1.1);
@@ -1930,6 +2023,7 @@ function  display_mag_sfg() {
 
     cy.style().selector('edge').css({'content': ''}).update()
     applyEdgeLabelVisibility(cy);
+    scheduleEdgeCurveUpdate(cy);
     const time2 = new Date()
     let time_elapse = (time2 - time1)/1000
     console.log("display_mag_sfg SFG loading time: " + time_elapse + " seconds")
