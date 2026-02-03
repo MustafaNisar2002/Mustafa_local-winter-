@@ -13,6 +13,7 @@ import tempfile
 import dill
 import json
 import sympy
+from mongoengine.errors import ValidationError
 
 import db
 
@@ -824,7 +825,10 @@ def get_sfg(circuit_id):
 # TODO import needs implementation
 @app.route("/circuits/<circuit_id>/import", methods=["POST"])
 def import_dill_sfg(circuit_id):
-    circuit = db.Circuit.objects(id=circuit_id).first()
+    try:
+        circuit = db.Circuit.objects(id=circuit_id).first()
+    except (ValidationError, TypeError, ValueError):
+        circuit = None
 
     try:
         loaded_sfg = dill.load(request.files["file"])
