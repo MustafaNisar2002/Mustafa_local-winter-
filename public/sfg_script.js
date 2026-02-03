@@ -18,9 +18,10 @@ const EDGE_LABEL_OFFSET_STEP = 26;
 const EDGE_LABEL_WIDTH_PADDING = 72;
 const EDGE_LABEL_CHAR_FACTOR = 0.62;
 const EDGE_LABEL_WIDTH_SCALE = 0.45;
-const EDGE_LABEL_COLLISION_PADDING = 10;
-const EDGE_LABEL_COLLISION_STEP = 36;
-const EDGE_LABEL_AVOIDANCE_MAX = 360;
+const EDGE_LABEL_COLLISION_PADDING = 16;
+const EDGE_LABEL_COLLISION_STEP = 60;
+const EDGE_LABEL_AVOIDANCE_MAX = 520;
+const EDGE_LABEL_OFFSET_AVOIDANCE_MAX = 180;
 
 let pendingCurveUpdate = false;
 
@@ -118,7 +119,7 @@ function applyEdgeCurvesWithLabelAvoidance(cy) {
     return;
   }
 
-  const maxIterations = 3;
+  const maxIterations = 5;
 
   for (let pass = 0; pass < maxIterations; pass += 1) {
     applyEdgeCurves(cy);
@@ -131,11 +132,16 @@ function applyEdgeCurvesWithLabelAvoidance(cy) {
 
 function updateLabelCollisionAvoidance(cy) {
   if (!symbolic_flag || !cy || cy.destroyed()) {
-    cy?.edges().forEach(edge => edge.removeScratch('_labelAvoidance'));
+    cy?.edges().forEach(edge => {
+      edge.removeScratch('_labelAvoidance');
+      edge.removeScratch('_labelOffsetNudge');
+    });
     return false;
   }
 
   const labelEntries = [];
+  const containerRect = cy.container().getBoundingClientRect();
+
   cy.edges().forEach(edge => {
     if (!edge.isEdge() || edge.destroyed()) {
       return;
@@ -156,7 +162,24 @@ function updateLabelCollisionAvoidance(cy) {
       return;
     }
 
-    labelEntries.push({ edge, rect });
+    const center = {
+      x: (rect.left + rect.right) / 2,
+      y: (rect.top + rect.bottom) / 2,
+    };
+    labelEntries.push({ edge, rect, center });
+  });
+
+  const nodeRects = cy.nodes().map(node => {
+    const bb = node.renderedBoundingBox();
+    return {
+      node,
+      rect: {
+        left: containerRect.left + bb.x1,
+        right: containerRect.left + bb.x2,
+        top: containerRect.top + bb.y1,
+        bottom: containerRect.top + bb.y2,
+      },
+    };
   });
 
   const overlapCounts = new Map();
@@ -184,6 +207,16 @@ function updateLabelCollisionAvoidance(cy) {
     }
   }
 
+  labelEntries.forEach(entry => {
+    nodeRects.forEach(nodeEntry => {
+      if (!intersects(entry.rect, nodeEntry.rect)) {
+        return;
+      }
+
+      overlapCounts.set(entry.edge, (overlapCounts.get(entry.edge) || 0) + 2);
+    });
+  });
+
   let changed = false;
   cy.edges().forEach(edge => {
     if (!edge.isEdge() || edge.destroyed()) {
@@ -193,8 +226,19 @@ function updateLabelCollisionAvoidance(cy) {
     const overlaps = overlapCounts.get(edge) || 0;
     const desired = Math.min(EDGE_LABEL_AVOIDANCE_MAX, overlaps * EDGE_LABEL_COLLISION_STEP);
     const current = edge.scratch('_labelAvoidance') || 0;
+    const desiredOffset = Math.min(
+      EDGE_LABEL_OFFSET_AVOIDANCE_MAX,
+      overlaps * EDGE_LABEL_OFFSET_STEP * 0.6
+    );
+    const currentOffset = edge.scratch('_labelOffsetNudge') || 0;
+
     if (current !== desired) {
       edge.scratch('_labelAvoidance', desired);
+      changed = true;
+    }
+
+    if (currentOffset !== desiredOffset) {
+      edge.scratch('_labelOffsetNudge', desiredOffset);
       changed = true;
     }
   });
@@ -826,8 +870,12 @@ function applyEdgeCurves(cy) {
     const labelDirectionBias = directionSign * EDGE_LABEL_OFFSET_STEP * 0.55;
     const labelCrowdingBias = combinedOffset * EDGE_LABEL_OFFSET_STEP * 0.35;
     const pairLaneBias = normalizedPairSpread * EDGE_LABEL_OFFSET_STEP * 1.15;
+    const labelOffsetNudge = edge.scratch('_labelOffsetNudge') || 0;
     const rawLabelOffset = EDGE_LABEL_OFFSET_BASE + labelDirectionBias + labelCrowdingBias + pairLaneBias;
-    const labelOffset = Math.max(-220, Math.min(220, rawLabelOffset));
+    const labelOffset = Math.max(
+      -260,
+      Math.min(260, rawLabelOffset + directionSign * labelOffsetNudge)
+    );
 
     edge.data('labelOffset', labelOffset);
 
@@ -2017,7 +2065,9 @@ function  display_mag_sfg() {
     
     });
 
-    if (window.MathJax && typeof MathJax.typeset === 'function') {
+    if (window.MathJax && typeof MathJax.typesetPromise === 'function') {
+        MathJax.typesetPromise().then(() => scheduleEdgeCurveUpdate(cy));
+    } else if (window.MathJax && typeof MathJax.typeset === 'function') {
         MathJax.typeset();
     }
 
