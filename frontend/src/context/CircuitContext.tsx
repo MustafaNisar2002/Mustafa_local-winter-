@@ -30,7 +30,7 @@ export function CircuitProvider({ children }: { children: React.ReactNode }) {
   const [circuitId, setCircuitId] = useState<string | null>(
     sessionStorage.getItem('circuitId'),
   );
-  /* Keep sessionStorage in sync so the legacy iframe can read the id */
+  /* Keep sessionStorage in sync for persisted circuit sessions */
   useEffect(() => {
     if (circuitId) {
       sessionStorage.setItem('circuitId', circuitId);

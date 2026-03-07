@@ -13,17 +13,14 @@
     "@emotion/styled": "^11.13.0",
     "@mui/icons-material": "^5.16.0",
     "@mui/material": "^5.16.0",
+    "@xyflow/react": "^12.10.1",
     "chart.js": "^4.4.3",
-    "cytoscape": "^3.30.0",
-    "cytoscape-dagre": "^2.5.0",
-    "cytoscape-popper": "^2.0.0",
     "react": "^18.3.1",
     "react-chartjs-2": "^5.2.0",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.0"
   },
   "devDependencies": {
-    "@types/cytoscape": "^3.21.4",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",

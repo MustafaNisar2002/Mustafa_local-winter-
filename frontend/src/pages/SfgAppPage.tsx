@@ -1,10 +1,9 @@
 /* ------------------------------------------------------------------ */
 /*  SigFlow – Main SFG Application Page                                */
 /*                                                                     */
-/*  Layout: AppBar + toggleable left sidebar (analysis accordion       */
-/*  panels) + SFG toolbar + legacy SFG iframe filling the rest.        */
+/*  Layout: AppBar + toggleable left sidebar + native React Flow SFG.  */
 /* ------------------------------------------------------------------ */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -30,8 +29,8 @@ import InsightsIcon from '@mui/icons-material/Insights';
 
 import { useCircuit } from '../context/CircuitContext';
 import * as api from '../api/circuitApi';
-import SfgEmbed from '../components/sfg/SfgEmbed';
 import SfgToolbar from '../components/sfg/SfgToolbar';
+import SfgFlowCanvas from '../components/sfg/SfgFlowCanvas';
 import AnalysisSidebar from '../components/sidebar/AnalysisSidebar';
 import TransferFunctionPanel from '../components/analysis/TransferFunctionPanel';
 import LoopGainPanel from '@/components/analysis/LoopGainPanel';
@@ -42,11 +41,10 @@ export default function SfgAppPage() {
   const navigate = useNavigate();
   const theme = useTheme();
   const isMd = useMediaQuery(theme.breakpoints.up('md'));
-  const { circuitId, data, loadCircuit } = useCircuit();
+  const { circuitId, data, loadCircuit, symbolicFlag, toggleSymbolic } = useCircuit();
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
-  /* Ref to the legacy iframe – shared between SfgEmbed and SfgToolbar */
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [showOverlay, setShowOverlay] = useState(true);
 
   /* Redirect to landing if no circuit loaded */
   useEffect(() => {
@@ -180,12 +178,16 @@ export default function SfgAppPage() {
           </Drawer>
         )}
 
-        {/* SFG viewer – toolbar + legacy iframe fills remaining space */}
+        {/* SFG viewer – toolbar + native React Flow canvas */}
         <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          <SfgToolbar iframeRef={iframeRef} />
-          {/* SFG iframe area */}
+          <SfgToolbar
+            symbolicFlag={symbolicFlag}
+            onToggleSymbolic={toggleSymbolic}
+            showOverlay={showOverlay}
+            onToggleOverlay={() => setShowOverlay((value) => !value)}
+          />
           <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
-            <SfgEmbed circuitId={circuitId} iframeRef={iframeRef} />
+            <SfgFlowCanvas showOverlay={showOverlay} />
           </Box>
           {/* Panels under SFG */}
           <Box sx={{ borderTop: '1px solid', borderColor: 'divider', bgcolor: 'background.default', p: 1, overflow: 'auto', }}>
