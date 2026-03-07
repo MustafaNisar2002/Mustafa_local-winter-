@@ -645,6 +645,78 @@ function chooseOutwardDirectionSign({ midpoint, center, perp, fallbackSign }) {
   return outwardPlus > outwardMinus ? 1 : -1;
 }
 
+
+function getBidirectionalDirectionBias(cy) {
+  const directionalBias = new Map();
+  const undirectedGroups = new Map();
+
+  cy.edges().forEach(edge => {
+    if (!edge || !edge.isEdge() || edge.destroyed()) {
+      return;
+    }
+
+    const sourceId = edge.source().id();
+    const targetId = edge.target().id();
+    const undirectedKey = sourceId < targetId
+      ? `${sourceId}<->${targetId}`
+      : `${targetId}<->${sourceId}`;
+
+    if (!undirectedGroups.has(undirectedKey)) {
+      undirectedGroups.set(undirectedKey, []);
+    }
+
+    undirectedGroups.get(undirectedKey).push(edge);
+  });
+
+  undirectedGroups.forEach(group => {
+    if (!group || group.length < 2) {
+      return;
+    }
+
+    const directionKeys = new Set(group.map(edge => `${edge.source().id()}->${edge.target().id()}`));
+
+    if (directionKeys.size < 2) {
+      return;
+    }
+
+    const [first] = group;
+    const sourceId = first.source().id();
+    const targetId = first.target().id();
+    const canonicalForward = sourceId < targetId
+      ? `${sourceId}->${targetId}`
+      : `${targetId}->${sourceId}`;
+
+    group.forEach(edge => {
+      const key = `${edge.source().id()}->${edge.target().id()}`;
+      const bias = key === canonicalForward ? 1 : -1;
+      directionalBias.set(edge.id(), bias);
+    });
+  });
+
+  return directionalBias;
+}
+
+function normalizeCurveInversionFlag(value) {
+  if (value === undefined || value === null) {
+    return false;
+  }
+
+  if (typeof value === 'boolean') {
+    return value;
+  }
+
+  if (typeof value === 'number') {
+    return value !== 0;
+  }
+
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase();
+    return normalized === 'true' || normalized === '1' || normalized === 'yes';
+  }
+
+  return false;
+}
+
 function applyEdgeCurves(cy) {
   if (!cy || cy.destroyed()) {
     return;
@@ -665,6 +737,7 @@ function applyEdgeCurves(cy) {
   const groupedOutgoing = new Map();
   const groupedIncoming = new Map();
   const pairedEdges = new Map();
+  const bidirectionalDirectionBias = getBidirectionalDirectionBias(cy);
 
   cy.edges().forEach(edge => {
     if (!edge.isEdge() || edge.destroyed()) {
@@ -837,6 +910,16 @@ function applyEdgeCurves(cy) {
       perp: { x: perpX, y: perpY },
       fallbackSign,
     });
+
+    const pairDirectionBias = bidirectionalDirectionBias.get(edge.id());
+    if (pairDirectionBias) {
+      directionSign = pairDirectionBias;
+    }
+
+    const invertCurve = normalizeCurveInversionFlag(edge.data('invertCurve'));
+    if (invertCurve) {
+      directionSign *= -1;
+    }
 
     const outSpread = outSize > 1 ? outRank / ((outSize - 1) / 2) : 0;
     const inSpread = inSize > 1 ? inRank / ((inSize - 1) / 2) : 0;
