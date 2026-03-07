@@ -437,7 +437,42 @@ function make_sfg(elements) {
   }
 
   var cy = window.cy = createSfgInstance(container, elements);
+  // Require Ctrl/Cmd + wheel for zooming. Plain wheel gestures are treated
+  // as page-scroll intents and forwarded to the parent app.
+  cy.userZoomingEnabled(false);
   setupEdgeCurveCurvature(cy);
+
+  container.addEventListener('wheel', function (evt) {
+    const isModifierZoom = evt.ctrlKey || evt.metaKey;
+
+    if (!isModifierZoom) {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({
+          type: 'sfg-scroll-intent',
+          deltaX: evt.deltaX,
+          deltaY: evt.deltaY,
+        }, '*');
+      }
+      return;
+    }
+
+    evt.preventDefault();
+
+    const zoomDirection = evt.deltaY < 0 ? 1 : -1;
+    const zoomFactor = 1 + (zoomDirection * 0.12);
+    const currentZoom = cy.zoom();
+    const minZoom = typeof cy.minZoom === 'function' ? cy.minZoom() : 0.05;
+    const maxZoom = typeof cy.maxZoom === 'function' ? cy.maxZoom() : 8;
+    const nextZoom = Math.max(minZoom, Math.min(maxZoom, currentZoom * zoomFactor));
+
+    cy.zoom({
+      level: nextZoom,
+      renderedPosition: {
+        x: evt.offsetX,
+        y: evt.offsetY,
+      },
+    });
+  }, { passive: false });
 
   // make lines straight when aligned
   cy.edges().forEach((edge, idx) => {
