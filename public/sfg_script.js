@@ -107,6 +107,11 @@ function syncSymbolicLabelOffsets(cy) {
         if (labelEl) {
             labelEl.style.marginTop = `${edge.data('labelOffset') || 0}px`;
         }
+
+        const popperUpdate = edge.scratch('_symbolicPopperUpdate');
+        if (typeof popperUpdate === 'function') {
+            popperUpdate();
+        }
     });
 }
 
@@ -612,6 +617,34 @@ function setupEdgeCurveCurvature(cy) {
   cy.on('position', 'node', scheduleUpdate);
 }
 
+function chooseOutwardDirectionSign({ midpoint, center, perp, fallbackSign }) {
+  const baseSign = fallbackSign >= 0 ? 1 : -1;
+
+  if (!midpoint || !center || !perp) {
+    return baseSign;
+  }
+
+  const toCenterX = midpoint.x - center.x;
+  const toCenterY = midpoint.y - center.y;
+
+  const candidate = (sign) => {
+    const cpX = midpoint.x + perp.x * sign;
+    const cpY = midpoint.y + perp.y * sign;
+    const dx = cpX - center.x;
+    const dy = cpY - center.y;
+    return dx * dx + dy * dy;
+  };
+
+  const outwardPlus = candidate(1);
+  const outwardMinus = candidate(-1);
+
+  if (Math.abs(outwardPlus - outwardMinus) < 0.01) {
+    return baseSign;
+  }
+
+  return outwardPlus > outwardMinus ? 1 : -1;
+}
+
 function applyEdgeCurves(cy) {
   if (!cy || cy.destroyed()) {
     return;
@@ -784,21 +817,30 @@ function applyEdgeCurves(cy) {
     const perpY = dx / norm;
     const outward = perpX * toCenterX + perpY * toCenterY;
     const combinedOffset = outRank - inRank;
-    let directionSign = outward >= 0 ? 1 : -1;
+    const pairSpread = pairSize > 1 ? pairIndex - (pairSize - 1) / 2 : 0;
+    const normalizedPairSpread = pairSize > 1 ? pairSpread / ((pairSize - 1) / 2) : 0;
 
+    let fallbackSign = outward >= 0 ? 1 : -1;
     if (Math.abs(outward) < 0.01) {
       if (combinedOffset !== 0) {
-        directionSign = combinedOffset > 0 ? 1 : -1;
+        fallbackSign = combinedOffset > 0 ? 1 : -1;
+      } else if (pairSpread !== 0) {
+        fallbackSign = pairSpread > 0 ? 1 : -1;
       } else if (dy !== 0) {
-        directionSign = dy > 0 ? 1 : -1;
+        fallbackSign = dy > 0 ? 1 : -1;
       }
     }
+
+    let directionSign = chooseOutwardDirectionSign({
+      midpoint: { x: midX, y: midY },
+      center,
+      perp: { x: perpX, y: perpY },
+      fallbackSign,
+    });
 
     const outSpread = outSize > 1 ? outRank / ((outSize - 1) / 2) : 0;
     const inSpread = inSize > 1 ? inRank / ((inSize - 1) / 2) : 0;
     const spreadMagnitude = Math.abs(outRank) + Math.abs(inRank);
-    const pairSpread = pairSize > 1 ? pairIndex - (pairSize - 1) / 2 : 0;
-    const normalizedPairSpread = pairSize > 1 ? pairSpread / ((pairSize - 1) / 2) : 0;
 
     const labelWidth = measureEdgeLabelWidth(edge);
     const labelRatio = spanLength > 0 ? labelWidth / spanLength : 1;
@@ -1608,9 +1650,11 @@ function  display_mag_sfg() {
                 edge.style.fontSize = cy.zoom()*16 + 'px';
             }
         }
-          
+
+        edge.scratch('_symbolicPopperUpdate', updates[idx]);
+
         edge.connectedNodes().on('position', updates[idx]);
-        
+
         cy.on('pan zoom resize', updates[idx]);
     
     });
