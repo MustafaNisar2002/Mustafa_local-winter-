@@ -646,7 +646,7 @@ function chooseOutwardDirectionSign({ midpoint, center, perp, fallbackSign }) {
 }
 
 
-function getBidirectionalDirectionBias(cy) {
+function getBidirectionalDirectionBias(cy, center) {
   const directionalBias = new Map();
   const undirectedGroups = new Map();
 
@@ -673,24 +673,53 @@ function getBidirectionalDirectionBias(cy) {
       return;
     }
 
-    const directionKeys = new Set(group.map(edge => `${edge.source().id()}->${edge.target().id()}`));
+    const byDirection = new Map();
+    group.forEach(edge => {
+      const key = `${edge.source().id()}->${edge.target().id()}`;
+      if (!byDirection.has(key)) {
+        byDirection.set(key, []);
+      }
+      byDirection.get(key).push(edge);
+    });
 
-    if (directionKeys.size < 2) {
+    if (byDirection.size < 2) {
       return;
     }
 
-    const [first] = group;
-    const sourceId = first.source().id();
-    const targetId = first.target().id();
-    const canonicalForward = sourceId < targetId
-      ? `${sourceId}->${targetId}`
-      : `${targetId}->${sourceId}`;
+    const directions = Array.from(byDirection.keys());
+    const [dirA, dirB] = directions;
+    const edgesA = byDirection.get(dirA) || [];
+    const edgesB = byDirection.get(dirB) || [];
 
-    group.forEach(edge => {
-      const key = `${edge.source().id()}->${edge.target().id()}`;
-      const bias = key === canonicalForward ? 1 : -1;
-      directionalBias.set(edge.id(), bias);
-    });
+    const inferDirectionSign = (edge, fallbackSign) => {
+      const sourcePos = edge.source().position();
+      const targetPos = edge.target().position();
+      const dx = targetPos.x - sourcePos.x;
+      const dy = targetPos.y - sourcePos.y;
+      const spanLength = Math.hypot(dx, dy) || 1;
+      const perpX = -dy / spanLength;
+      const perpY = dx / spanLength;
+      const midpoint = {
+        x: (sourcePos.x + targetPos.x) / 2,
+        y: (sourcePos.y + targetPos.y) / 2,
+      };
+
+      return chooseOutwardDirectionSign({
+        midpoint,
+        center,
+        perp: { x: perpX, y: perpY },
+        fallbackSign,
+      });
+    };
+
+    const signA = edgesA.length ? inferDirectionSign(edgesA[0], 1) : 1;
+    const signB = edgesB.length ? inferDirectionSign(edgesB[0], -1) : -1;
+
+    const resolvedA = signA === signB ? signA : signA;
+    const resolvedB = signA === signB ? -signA : signB;
+
+    edgesA.forEach(edge => directionalBias.set(edge.id(), resolvedA));
+    edgesB.forEach(edge => directionalBias.set(edge.id(), resolvedB));
   });
 
   return directionalBias;
@@ -737,7 +766,6 @@ function applyEdgeCurves(cy) {
   const groupedOutgoing = new Map();
   const groupedIncoming = new Map();
   const pairedEdges = new Map();
-  const bidirectionalDirectionBias = getBidirectionalDirectionBias(cy);
 
   cy.edges().forEach(edge => {
     if (!edge.isEdge() || edge.destroyed()) {
@@ -852,6 +880,7 @@ function applyEdgeCurves(cy) {
   const bbox = cy.elements().boundingBox();
   const maxRadius = Math.max(bbox.w, bbox.h) / 2;
   const safeRadius = Math.max(maxRadius, 1);
+  const bidirectionalDirectionBias = getBidirectionalDirectionBias(cy, center);
 
   cy.edges().forEach(edge => {
     if (!edge.isEdge() || edge.destroyed()) {
@@ -877,6 +906,7 @@ function applyEdgeCurves(cy) {
 
     const sourcePos = edge.source().position();
     const targetPos = edge.target().position();
+    const isSelfLoop = edge.source().id() === edge.target().id();
     const dx = targetPos.x - sourcePos.x;
     const dy = targetPos.y - sourcePos.y;
     const spanLength = Math.hypot(dx, dy);
@@ -940,10 +970,24 @@ function applyEdgeCurves(cy) {
       return;
     }
 
+    if (isSelfLoop) {
+      const radialX = sourcePos.x - center.x;
+      const radialY = sourcePos.y - center.y;
+      const radialNorm = Math.hypot(radialX, radialY) || 1;
+      const loopOutwardSign = (perpX * (radialX / radialNorm) + perpY * (radialY / radialNorm)) >= 0 ? 1 : -1;
+      const loopSpread = pairSize > 1 ? (pairIndex - (pairSize - 1) / 2) : 0;
+      const loopDistance = (EDGE_BASE_CURVE_DISTANCE * 1.15) + Math.abs(loopSpread) * (EDGE_CURVE_SPACING * 1.4);
+      edge.data('controlPointDistance', loopOutwardSign * loopDistance);
+      edge.data('controlPointWeight', Math.max(0.2, Math.min(0.8, 0.45 + loopSpread * 0.09)));
+      edge.data('labelOffset', EDGE_LABEL_OFFSET_BASE + loopOutwardSign * EDGE_LABEL_OFFSET_STEP * 1.4 + loopSpread * EDGE_LABEL_OFFSET_STEP * 0.9);
+      cleanupScratch();
+      return;
+    }
+
     let magnitude = EDGE_BASE_CURVE_DISTANCE;
     magnitude += spreadMagnitude * (EDGE_CURVE_SPACING * 0.6);
     magnitude += Math.abs(combinedOffset) * (EDGE_CURVE_SPACING * 0.4);
-    magnitude += Math.abs(pairSpread) * (EDGE_CURVE_SPACING * 1.1);
+    magnitude += Math.abs(pairSpread) * (EDGE_CURVE_SPACING * 1.55);
     magnitude += labelWidth * EDGE_LABEL_WIDTH_SCALE;
 
     if (labelRatio > 0.85) {
@@ -972,7 +1016,7 @@ function applyEdgeCurves(cy) {
     }
 
     const weightBase = (outSpread - inSpread) * EDGE_WEIGHT_SHIFT;
-    const pairBias = normalizedPairSpread * 0.18;
+    const pairBias = normalizedPairSpread * 0.26;
     const outwardBias = directionSign * 0.08;
     const labelBias = Math.max(-0.15, Math.min(0.15, (labelRatio - 1) * 0.12));
     const weight = Math.max(0.12, Math.min(0.88, 0.5 + weightBase + outwardBias + pairBias + labelBias));
