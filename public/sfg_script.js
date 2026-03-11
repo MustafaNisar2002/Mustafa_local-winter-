@@ -646,6 +646,64 @@ function chooseOutwardDirectionSign({ midpoint, center, perp, fallbackSign }) {
 }
 
 
+function chooseLeastCrowdedDirectionSign({ cy, edge, midpoint, center, perp, fallbackSign, probeDistance }) {
+  const baseSign = fallbackSign >= 0 ? 1 : -1;
+
+  if (!cy || !edge || !midpoint || !center || !perp) {
+    return baseSign;
+  }
+
+  const sourceId = edge.source().id();
+  const targetId = edge.target().id();
+  const probe = Math.max(EDGE_MIN_CURVE_MAGNITUDE, probeDistance || EDGE_BASE_CURVE_DISTANCE);
+
+  const scoreSign = (sign) => {
+    const cpX = midpoint.x + perp.x * sign * probe;
+    const cpY = midpoint.y + perp.y * sign * probe;
+
+    let nearestNodeDistance = Infinity;
+    let crowdingPenalty = 0;
+
+    cy.nodes().forEach(node => {
+      if (!node || node.destroyed()) {
+        return;
+      }
+
+      const nodeId = node.id();
+      if (nodeId === sourceId || nodeId === targetId) {
+        return;
+      }
+
+      const pos = node.position();
+      const dx = pos.x - cpX;
+      const dy = pos.y - cpY;
+      const distance = Math.hypot(dx, dy);
+      nearestNodeDistance = Math.min(nearestNodeDistance, distance);
+      crowdingPenalty += 1 / Math.max(36, distance);
+    });
+
+    if (!Number.isFinite(nearestNodeDistance)) {
+      nearestNodeDistance = probe;
+    }
+
+    const centerDx = cpX - center.x;
+    const centerDy = cpY - center.y;
+    const centerDistance = Math.hypot(centerDx, centerDy);
+
+    return (nearestNodeDistance * 0.9) + (centerDistance * 0.2) - (crowdingPenalty * 180);
+  };
+
+  const plusScore = scoreSign(1);
+  const minusScore = scoreSign(-1);
+
+  if (Math.abs(plusScore - minusScore) < 0.5) {
+    return baseSign;
+  }
+
+  return plusScore > minusScore ? 1 : -1;
+}
+
+
 function getBidirectionalDirectionBias(cy, center) {
   const directionalBias = new Map();
   const undirectedGroups = new Map();
@@ -704,18 +762,28 @@ function getBidirectionalDirectionBias(cy, center) {
         y: (sourcePos.y + targetPos.y) / 2,
       };
 
-      return chooseOutwardDirectionSign({
+      const outwardSign = chooseOutwardDirectionSign({
         midpoint,
         center,
         perp: { x: perpX, y: perpY },
         fallbackSign,
+      });
+
+      return chooseLeastCrowdedDirectionSign({
+        cy,
+        edge,
+        midpoint,
+        center,
+        perp: { x: perpX, y: perpY },
+        fallbackSign: outwardSign,
+        probeDistance: EDGE_BASE_CURVE_DISTANCE,
       });
     };
 
     const signA = edgesA.length ? inferDirectionSign(edgesA[0], 1) : 1;
     const signB = edgesB.length ? inferDirectionSign(edgesB[0], -1) : -1;
 
-    const resolvedA = signA === signB ? signA : signA;
+    const resolvedA = signA;
     const resolvedB = signA === signB ? -signA : signB;
 
     edgesA.forEach(edge => directionalBias.set(edge.id(), resolvedA));
@@ -939,6 +1007,16 @@ function applyEdgeCurves(cy) {
       center,
       perp: { x: perpX, y: perpY },
       fallbackSign,
+    });
+
+    directionSign = chooseLeastCrowdedDirectionSign({
+      cy,
+      edge,
+      midpoint: { x: midX, y: midY },
+      center,
+      perp: { x: perpX, y: perpY },
+      fallbackSign: directionSign,
+      probeDistance: EDGE_BASE_CURVE_DISTANCE + Math.abs(pairSpread) * EDGE_CURVE_SPACING * 0.8,
     });
 
     const pairDirectionBias = bidirectionalDirectionBias.get(edge.id());
