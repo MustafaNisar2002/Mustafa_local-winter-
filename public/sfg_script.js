@@ -4205,55 +4205,46 @@ function import_sfg_request(sfg_obj) {
 }
 
 function upload_dill_sfg() {
-    // TODO add error checking (i.e. is file in correct json format)
-    var files = document.getElementById('upload_sfg').files;
-    console.log(files);
-    if (files.length <= 0) {
+    const files = document.getElementById('upload_sfg').files;
+    if (!files || files.length <= 0) {
         return false;
     }
-    var dill_sfg = files[0];
-    console.log(dill_sfg);
-    var fr = new FileReader();
-    var sfg_obj;
-    fr.onload = function(e) { 
-        console.log("IMPORTED dill obj is: ", dill_sfg)
-        //console.log(JSON.parse(JSON.stringify(sfg_obj.sfg.elements)))
-        // TODO connect to backend to convert sfg JSON to sfg graph and binary field
-        import_dill_sfg(dill_sfg)
-    }
 
-    fr.readAsText(files.item(0));
+    const dill_sfg = files[0];
+    console.log('Uploading dill SFG file:', dill_sfg && dill_sfg.name);
+
+    return import_dill_sfg(dill_sfg);
 }
 
 function import_dill_sfg(dill_sfg) {
     let url = new URL(`${baseUrl}/circuits/${circuitId}/import`)
     console.log(circuitId)
-    var formData = new FormData();
+    const formData = new FormData();
     formData.append("file", dill_sfg);
 
-    fetch(url, {
+    return fetch(url, {
         method: 'POST',
         body: formData
     })
-    .then(response => response.json())
+    .then(response => {
+        if (!response.ok) {
+            return response.text().then(message => {
+                throw new Error(message || 'Failed to import SFG file');
+            });
+        }
+
+        return response.json();
+    })
     .then(data => {
-        // TODO update_frontend(data);
-        //or update_frontend(sfg_obj, true); ?
-       
-        
-        data_json = JSON.parse(JSON.stringify(data));
-        // data_json.sfg = sfg_obj;
-        
-        console.log("modified data is: ");
-        console.log(data_json);
-        update_frontend(data_json); //buggy
-        
-    
-        // update_frontend(sfg_obj, true);
+        console.log('Imported SFG response:', data);
+        update_frontend(data);
+        load_interface();
     })
     .catch(error => {
-        console.log(error)
-    })}
+        console.log(error);
+        alert('Failed to import SFG file.');
+    })
+}
 
 function stability_parameter_panel() {
 
