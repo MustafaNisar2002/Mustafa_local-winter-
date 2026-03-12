@@ -24,8 +24,19 @@ const EDGE_LABEL_AVOIDANCE_MAX = 360;
 
 let pendingCurveUpdate = false;
 
+
+function isCyUnavailable(cyInstance) {
+    return !cyInstance || (typeof cyInstance.destroyed === 'function' && cyInstance.destroyed());
+}
+
+function isEdgeUnavailable(edge) {
+    return !edge
+        || (typeof edge.isEdge === 'function' && !edge.isEdge())
+        || (typeof edge.removed === 'function' && edge.removed());
+}
+
 function scheduleEdgeCurveUpdate(cy) {
-    if (!cy || cy.destroyed()) {
+    if (isCyUnavailable(cy)) {
         return;
     }
 
@@ -73,7 +84,7 @@ function approximateLabelWidth(text, fontSize) {
 }
 
 function measureEdgeLabelWidth(edge) {
-    if (!edge || edge.destroyed()) {
+    if (isEdgeUnavailable(edge)) {
         return 0;
     }
 
@@ -100,7 +111,7 @@ function measureEdgeLabelWidth(edge) {
 }
 
 function syncSymbolicLabelOffsets(cy) {
-    if (!symbolic_flag || !cy || cy.destroyed()) {
+    if (!symbolic_flag || isCyUnavailable(cy)) {
         return;
     }
 
@@ -114,7 +125,7 @@ function syncSymbolicLabelOffsets(cy) {
 }
 
 function applyEdgeCurvesWithLabelAvoidance(cy) {
-  if (!cy || cy.destroyed()) {
+  if (isCyUnavailable(cy)) {
     return;
   }
 
@@ -130,14 +141,14 @@ function applyEdgeCurvesWithLabelAvoidance(cy) {
 }
 
 function updateLabelCollisionAvoidance(cy) {
-  if (!symbolic_flag || !cy || cy.destroyed()) {
+  if (!symbolic_flag || isCyUnavailable(cy)) {
     cy?.edges().forEach(edge => edge.removeScratch('_labelAvoidance'));
     return false;
   }
 
   const labelEntries = [];
   cy.edges().forEach(edge => {
-    if (!edge.isEdge() || edge.destroyed()) {
+    if (isEdgeUnavailable(edge)) {
       return;
     }
 
@@ -186,7 +197,7 @@ function updateLabelCollisionAvoidance(cy) {
 
   let changed = false;
   cy.edges().forEach(edge => {
-    if (!edge.isEdge() || edge.destroyed()) {
+    if (isEdgeUnavailable(edge)) {
       return;
     }
 
@@ -203,7 +214,7 @@ function updateLabelCollisionAvoidance(cy) {
 }
 
 function applyEdgeLabelVisibility(cyInstance = window.cy) {
-    if (!cyInstance || cyInstance.destroyed()) {
+    if (isCyUnavailable(cyInstance)) {
         return;
     }
 
@@ -249,7 +260,7 @@ function renderSymbolicLabels() {
     }
 
     const cyInstance = window.cy;
-    if (!cyInstance || cyInstance.destroyed()) {
+    if (isCyUnavailable(cyInstance)) {
         return;
     }
 
@@ -259,7 +270,7 @@ function renderSymbolicLabels() {
 
 function renderNumericLabels() {
     const cyInstance = window.cy;
-    if (!cyInstance || cyInstance.destroyed()) {
+    if (isCyUnavailable(cyInstance)) {
         removeSymbolicLabels();
         return;
     }
@@ -270,7 +281,7 @@ function renderNumericLabels() {
 
 function renderCurrentLabelMode() {
     const cyInstance = window.cy;
-    if (!cyInstance || cyInstance.destroyed()) {
+    if (isCyUnavailable(cyInstance)) {
         return;
     }
 
@@ -621,7 +632,7 @@ function make_sfg(elements) {
 }
 
 function setupEdgeCurveCurvature(cy) {
-  if (!cy || cy.destroyed()) {
+  if (isCyUnavailable(cy)) {
     return;
   }
 
@@ -634,12 +645,12 @@ function setupEdgeCurveCurvature(cy) {
 }
 
 function applyEdgeCurves(cy) {
-  if (!cy || cy.destroyed()) {
+  if (isCyUnavailable(cy)) {
     return;
   }
 
   cy.edges().forEach((edge, idx) => {
-    if (!edge || !edge.isEdge() || edge.destroyed()) {
+    if (isEdgeUnavailable(edge)) {
       return;
     }
 
@@ -655,7 +666,7 @@ function applyEdgeCurves(cy) {
   const pairedEdges = new Map();
 
   cy.edges().forEach(edge => {
-    if (!edge.isEdge() || edge.destroyed()) {
+    if (isEdgeUnavailable(edge)) {
       return;
     }
 
@@ -769,7 +780,7 @@ function applyEdgeCurves(cy) {
   const safeRadius = Math.max(maxRadius, 1);
 
   cy.edges().forEach(edge => {
-    if (!edge.isEdge() || edge.destroyed()) {
+    if (isEdgeUnavailable(edge)) {
       return;
     }
 
