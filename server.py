@@ -11,6 +11,7 @@ from flask_cors import CORS
 from distutils.util import strtobool
 import tempfile
 import dill
+import io
 import json
 import sympy
 from mongoengine.errors import ValidationError
@@ -831,7 +832,19 @@ def import_dill_sfg(circuit_id):
         circuit = None
 
     try:
-        loaded_sfg = dill.load(request.files["file"])
+        uploaded_file = request.files.get("file")
+        if uploaded_file is None:
+            abort(400, description="No file was uploaded")
+
+        payload = uploaded_file.read()
+        if not payload:
+            abort(400, description="Uploaded file is empty")
+
+        try:
+            loaded_sfg = dill.loads(payload)
+        except Exception:
+            # Compatibility fallback for legacy pickle payloads.
+            loaded_sfg = dill.load(io.BytesIO(payload))
 
         if not circuit:
             # Only persist the provided id when it is a valid ObjectId, otherwise
