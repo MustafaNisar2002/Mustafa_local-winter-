@@ -757,9 +757,14 @@ def get_sfg(circuit_id):
 # TODO import needs implementation
 @app.route("/circuits/<circuit_id>/import", methods=["POST"])
 def import_dill_sfg(circuit_id):
-    circuit = db.Circuit.objects(id=circuit_id).first()
-
     try:
+        # A landing-page upload may use a UUID placeholder id before persistence.
+        # Querying MongoEngine with a non-ObjectId string raises ValidationError.
+        try:
+            circuit = db.Circuit.objects(id=circuit_id).first()
+        except Exception:
+            circuit = None
+
         uploaded_file = request.files.get("file")
         if uploaded_file is None:
             abort(400, description="Missing uploaded file")
