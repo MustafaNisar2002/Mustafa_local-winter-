@@ -15,6 +15,7 @@ import dill
 import json
 import sympy
 import re
+import networkx as nx
 from util.latex_parser import correlate_params_from_latex, rewrite_symbolic_to_canonical
 
 
@@ -756,9 +757,14 @@ def get_sfg(circuit_id):
 # TODO import needs implementation
 @app.route("/circuits/<circuit_id>/import", methods=["POST"])
 def import_dill_sfg(circuit_id):
-    circuit = db.Circuit.objects(id=circuit_id).first()
-
     try:
+        # A landing-page upload may use a UUID placeholder id before persistence.
+        # Querying MongoEngine with a non-ObjectId string raises ValidationError.
+        try:
+            circuit = db.Circuit.objects(id=circuit_id).first()
+        except Exception:
+            circuit = None
+
         uploaded_file = request.files.get("file")
         if uploaded_file is None:
             abort(400, description="Missing uploaded file")
@@ -769,27 +775,91 @@ def import_dill_sfg(circuit_id):
 
         loaded_sfg = dill.loads(payload)
 
+        imported_circuit = None
+        imported_graph = None
+
+        if isinstance(loaded_sfg, db.Circuit):
+            imported_circuit = loaded_sfg
+        elif isinstance(loaded_sfg, nx.DiGraph):
+            imported_graph = loaded_sfg
+        elif isinstance(loaded_sfg, dict):
+            try:
+                imported_graph = nx.cytoscape_graph(loaded_sfg)
+            except Exception:
+                imported_graph = None
+
+        if imported_circuit is None and imported_graph is None:
+            abort(
+                400,
+                description=(
+                    "Unsupported SFG payload. Please upload an exported circuit "
+                    "(.pkl) or a pickled/cytoscape graph."
+                ),
+            )
+
         if not circuit:
             # Only persist the provided id when it is a valid ObjectId, otherwise
             # let Mongo generate one so imports from arbitrary strings succeed.
             from bson import ObjectId
             from bson.errors import InvalidId
 
-            circuit_kwargs = {
-                "name": loaded_sfg.name,
-                "netlist": loaded_sfg.netlist,
-                "schematic": loaded_sfg.schematic,
-                "op_point_log": loaded_sfg.op_point_log,
-            }
+            if imported_circuit is not None:
+                circuit_kwargs = {
+                    "name": imported_circuit.name,
+                    "netlist": imported_circuit.netlist,
+                    "schematic": imported_circuit.schematic,
+                    "op_point_log": imported_circuit.op_point_log,
+                }
+            else:
+                circuit_kwargs = {
+                    "name": "Imported SFG",
+                    "netlist": "",
+                    "schematic": None,
+                    "op_point_log": None,
+                }
 
             try:
                 circuit_kwargs["circuitId"] = ObjectId(str(circuit_id))
             except InvalidId:
                 pass
 
-            circuit = db.Circuit.create(**circuit_kwargs)
+            if imported_circuit is not None:
+                imported_parameters = imported_circuit.parameters or {}
+                circuit = db.Circuit(
+                    **circuit_kwargs,
+                    parameters=imported_parameters,
+                    sfg=imported_circuit.sfg,
+                    original_sfg=(
+                        getattr(imported_circuit, "original_sfg", None)
+                        or imported_circuit.sfg
+                    ),
+                    original_parameters=(
+                        getattr(imported_circuit, "original_parameters", None)
+                        or imported_parameters.copy()
+                    ),
+                    transfer_functions=getattr(imported_circuit, "transfer_functions", None),
+                    loop_gain=getattr(imported_circuit, "loop_gain", None),
+                )
+            else:
+                circuit = db.Circuit(
+                    **circuit_kwargs,
+                    parameters={},
+                    sfg=dill.dumps(imported_graph),
+                    original_sfg=dill.dumps(imported_graph),
+                    original_parameters={},
+                )
 
-        circuit.import_circuit(loaded_sfg)
+        if imported_circuit is not None:
+            circuit.import_circuit(imported_circuit)
+        else:
+            graph_bytes = dill.dumps(imported_graph)
+            circuit.sfg = graph_bytes
+            circuit.original_sfg = graph_bytes
+            circuit.parameters = getattr(circuit, "parameters", None) or {}
+            circuit.original_parameters = (
+                getattr(circuit, "original_parameters", None)
+                or circuit.parameters.copy()
+            )
         circuit.id = circuit_id if circuit_id == str(circuit.id) else circuit.id
         circuit.save()
         fields = request.args.get("fields", type=lambda s: s and s.split(",") or None)
