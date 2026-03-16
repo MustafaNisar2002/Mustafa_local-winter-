@@ -824,7 +824,22 @@ def import_dill_sfg(circuit_id):
                 pass
 
             if imported_circuit is not None:
-                circuit = db.Circuit.create(**circuit_kwargs)
+                imported_parameters = imported_circuit.parameters or {}
+                circuit = db.Circuit(
+                    **circuit_kwargs,
+                    parameters=imported_parameters,
+                    sfg=imported_circuit.sfg,
+                    original_sfg=(
+                        getattr(imported_circuit, "original_sfg", None)
+                        or imported_circuit.sfg
+                    ),
+                    original_parameters=(
+                        getattr(imported_circuit, "original_parameters", None)
+                        or imported_parameters.copy()
+                    ),
+                    transfer_functions=getattr(imported_circuit, "transfer_functions", None),
+                    loop_gain=getattr(imported_circuit, "loop_gain", None),
+                )
             else:
                 circuit = db.Circuit(
                     **circuit_kwargs,

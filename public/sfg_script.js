@@ -70,7 +70,7 @@ function approximateLabelWidth(text, fontSize) {
 }
 
 function measureEdgeLabelWidth(edge) {
-    if (!edge || (typeof edge.removed === 'function' && edge.removed())) {
+    if (!edge || isEdgeDestroyed(edge)) {
         return 0;
     }
 
@@ -599,13 +599,16 @@ function make_sfg(elements) {
   console.log("make_sfg SFG loading time: " + time_elapse + " seconds");
 }
 
-function isRenderableEdge(edge) {
-  return Boolean(
-    edge
-    && typeof edge.isEdge === 'function'
-    && edge.isEdge()
-    && !(typeof edge.removed === 'function' && edge.removed())
-  );
+function isEdgeDestroyed(edge) {
+  if (!edge) {
+    return true;
+  }
+
+  if (typeof edge.destroyed === 'function') {
+    return edge.destroyed();
+  }
+
+  return typeof edge.removed === 'function' ? edge.removed() : false;
 }
 
 function setupEdgeCurveCurvature(cy) {
@@ -627,7 +630,7 @@ function applyEdgeCurves(cy) {
   }
 
   cy.edges().forEach((edge, idx) => {
-    if (!isRenderableEdge(edge)) {
+    if (!edge || !edge.isEdge() || isEdgeDestroyed(edge)) {
       return;
     }
 
@@ -643,7 +646,7 @@ function applyEdgeCurves(cy) {
   const pairedEdges = new Map();
 
   cy.edges().forEach(edge => {
-    if (!isRenderableEdge(edge)) {
+    if (!edge || !edge.isEdge() || isEdgeDestroyed(edge)) {
       return;
     }
 
@@ -757,7 +760,7 @@ function applyEdgeCurves(cy) {
   const safeRadius = Math.max(maxRadius, 1);
 
   cy.edges().forEach(edge => {
-    if (!isRenderableEdge(edge)) {
+    if (!edge || !edge.isEdge() || isEdgeDestroyed(edge)) {
       return;
     }
 
